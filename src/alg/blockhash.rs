@@ -157,6 +157,7 @@ fn blockhash_fast<I: Image, B: HashBytes>(img: &I, hwidth: u32, hheight: u32) ->
         == r)
 }
 
+#[allow(clippy::inline_always)]
 #[inline(always)]
 fn sum_px(chans: &[u8]) -> u32 {
     // Branch prediction should eliminate the match after a few iterations
@@ -168,15 +169,15 @@ fn sum_px(chans: &[u8]) -> u32 {
                 sum_px(&chans[..3])
             }
         }
-        3 => chans.iter().map(|&x| x as u32).sum(),
+        3 => chans.iter().map(|&x| u32::from(x)).sum(),
         2 => {
             if chans[1] == 0 {
                 255
             } else {
-                chans[0] as u32
+                u32::from(chans[0])
             }
         }
-        1 => chans[0] as u32,
+        1 => u32::from(chans[0]),
         channels => panic!("Unsupported channel count in image: {channels}"),
     }
 }

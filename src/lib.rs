@@ -122,7 +122,8 @@ impl HasherConfig<Box<[u8]>> {
     ///
     /// A default hash container type is provided as a default type parameter which is guaranteed
     /// to fit any hash size.
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self::with_bytes_type()
     }
 
@@ -133,7 +134,8 @@ impl HasherConfig<Box<[u8]>> {
     /// ### Note
     /// The default hash size requires 64 bits / 8 bytes of storage. You can change this
     /// with [`.hash_size()`](#method.hash_size).
-    pub fn with_bytes_type<B_: HashBytes>() -> HasherConfig<B_> {
+    #[must_use]
+    pub const fn with_bytes_type<B_: HashBytes>() -> HasherConfig<B_> {
         HasherConfig {
             width: 8,
             height: 8,
@@ -174,7 +176,7 @@ impl<B: HashBytes> HasherConfig<B> {
     /// When using DCT preprocessing having `width` and `height` be the same value will improve
     /// hashing performance as only one set of coefficients needs to be used.
     #[must_use]
-    pub fn hash_size(self, width: u32, height: u32) -> Self {
+    pub const fn hash_size(self, width: u32, height: u32) -> Self {
         Self {
             width,
             height,
@@ -187,7 +189,7 @@ impl<B: HashBytes> HasherConfig<B> {
     /// Note when picking a filter that images are almost always reduced in size.
     /// Has no effect with the Blockhash algorithm as it does not resize.
     #[must_use]
-    pub fn resize_filter(self, resize_filter: FilterType) -> Self {
+    pub const fn resize_filter(self, resize_filter: FilterType) -> Self {
         Self {
             resize_filter,
             ..self
@@ -198,7 +200,7 @@ impl<B: HashBytes> HasherConfig<B> {
     ///
     /// Each algorithm has different performance characteristics.
     #[must_use]
-    pub fn hash_alg(self, hash_alg: HashAlg) -> Self {
+    pub const fn hash_alg(self, hash_alg: HashAlg) -> Self {
         Self { hash_alg, ..self }
     }
 
@@ -227,13 +229,13 @@ impl<B: HashBytes> HasherConfig<B> {
     /// different for this to be optimized specifically for JPEG encoded images.
     ///
     /// Further Reading:
-    /// * http://www.hackerfactor.com/blog/?/archives/432-Looks-Like-It.html
+    /// * <http://www.hackerfactor.com/blog/?/archives/432-Looks-Like-It.html>
     /// Krawetz describes a "pHash" algorithm which is equivalent to Mean + DCT preprocessing here.
     /// However there is nothing to say that DCT preprocessing cannot compose with other hash
     /// algorithms; Gradient + DCT might well perform better in some aspects.
-    /// * https://en.wikipedia.org/wiki/Discrete_cosine_transform
+    /// * <https://en.wikipedia.org/wiki/Discrete_cosine_transform>
     #[must_use]
-    pub fn preproc_dct(self) -> Self {
+    pub const fn preproc_dct(self) -> Self {
         Self { dct: true, ..self }
     }
 
@@ -242,9 +244,9 @@ impl<B: HashBytes> HasherConfig<B> {
     /// Recommended only for use with [the Blockhash.io algorithm](enum.HashAlg#variant.Blockhash)
     /// as it significantly reduces entropy in the scaled down image for other algorithms.
     ///
-    /// See [`Self::preproc_diff_gauss_sigmas()](#method.preproc_diff_gauss_sigmas) for more info.
+    /// See [`Self::preproc_diff_gauss_sigmas()`](#method.preproc_diff_gauss_sigmas) for more info.
     #[must_use]
-    pub fn preproc_diff_gauss(self) -> Self {
+    pub const fn preproc_diff_gauss(self) -> Self {
         self.preproc_diff_gauss_sigmas(5.0, 10.0)
     }
 
@@ -259,11 +261,11 @@ impl<B: HashBytes> HasherConfig<B> {
     /// changes how sharp the edges are^[citation needed].
     ///
     /// Further reading:
-    /// * https://en.wikipedia.org/wiki/Difference_of_Gaussians
-    /// * http://homepages.inf.ed.ac.uk/rbf/HIPR2/log.htm
+    /// * <https://en.wikipedia.org/wiki/Difference_of_Gaussians>
+    /// * <http://homepages.inf.ed.ac.uk/rbf/HIPR2/log.htm>
     /// (Difference of Gaussians is an approximation of a Laplacian of Gaussian filter)
     #[must_use]
-    pub fn preproc_diff_gauss_sigmas(self, sigma_a: f32, sigma_b: f32) -> Self {
+    pub const fn preproc_diff_gauss_sigmas(self, sigma_a: f32, sigma_b: f32) -> Self {
         Self {
             gauss_sigmas: Some([sigma_a, sigma_b]),
             ..self
@@ -275,6 +277,7 @@ impl<B: HashBytes> HasherConfig<B> {
     /// ### Panics
     /// If the chosen hash size (`width x height`, rounded for the algorithm if necessary)
     /// is too large for the chosen container type (`B::max_bits()`).
+    #[must_use]
     pub fn to_hasher(&self) -> Hasher<B> {
         let Self {
             hash_alg,
@@ -323,7 +326,7 @@ impl<B> fmt::Debug for HasherConfig<B> {
             .field("width", &self.width)
             .field("height", &self.height)
             .field("hash_alg", &self.hash_alg)
-            .field("resize_filter", &debug_filter_type(&self.resize_filter))
+            .field("resize_filter", &debug_filter_type(self.resize_filter))
             .field("gauss_sigmas", &self.gauss_sigmas)
             .field("use_dct", &self.dct)
             .finish()
@@ -397,26 +400,29 @@ impl HashCtxt {
 
     /// If DCT preprocessing is configured, produce a vector of floats, otherwise a vector of bytes.
     fn calc_hash_vals(&self, img: &GrayImage, width: u32, height: u32) -> HashVals {
-        if let Some(ref dct_ctxt) = self.dct_ctxt {
-            let img =
-                imageops::resize(img, dct_ctxt.width(), dct_ctxt.height(), self.resize_filter);
+        self.dct_ctxt.as_ref().map_or_else(
+            || {
+                let img = imageops::resize(img, width, height, self.resize_filter);
+                HashVals::Bytes(img.into_vec())
+            },
+            |dct_ctxt| {
+                let img =
+                    imageops::resize(img, dct_ctxt.width(), dct_ctxt.height(), self.resize_filter);
 
-            let img_vals = img.into_vec();
-            let input_len = img_vals.len() + dct_ctxt.required_scratch();
+                let img_vals = img.into_vec();
+                let input_len = img_vals.len() + dct_ctxt.required_scratch();
 
-            let mut vals_with_scratch = Vec::with_capacity(input_len);
+                let mut vals_with_scratch = Vec::with_capacity(input_len);
 
-            // put the image values in [..width * height] and provide scratch space
-            vals_with_scratch.extend(img_vals.into_iter().map(|x| x as f32));
-            // TODO: compare with `.set_len()`
-            vals_with_scratch.resize(input_len, 0.);
+                // put the image values in [..width * height] and provide scratch space
+                vals_with_scratch.extend(img_vals.into_iter().map(f32::from));
+                // TODO: compare with `.set_len()`
+                vals_with_scratch.resize(input_len, 0.);
 
-            let hash_vals = dct_ctxt.dct_2d(vals_with_scratch);
-            HashVals::Floats(dct_ctxt.crop_2d(hash_vals))
-        } else {
-            let img = imageops::resize(img, width, height, self.resize_filter);
-            HashVals::Bytes(img.into_vec())
-        }
+                let hash_vals = dct_ctxt.dct_2d(vals_with_scratch);
+                HashVals::Floats(dct_ctxt.crop_2d(hash_vals))
+            },
+        )
     }
 }
 
@@ -452,9 +458,23 @@ impl<B: HashBytes> ImageHash<B> {
 
     /// Create an `ImageHash` instance from the given bytes.
     ///
-    /// ## Errors:
-    /// Returns a `InvalidBytesError::BytesWrongLength` error if the slice passed can't fit in `B`.
-    pub fn from_bytes(bytes: &[u8]) -> Result<ImageHash<B>, InvalidBytesError> {
+    /// # Errors
+    ///
+    /// Returns a `InvalidBytesError::Base64DecodeError` if there is an issue decoding the base64 string.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use img_hash::ImageHash;
+    /// use img_hash::InvalidBytesError;
+    ///
+    /// let bytes = [0, 1, 2, 3];
+    /// match ImageHash::from_bytes(&bytes) {
+    ///     Ok(hash) => println!("Successfully created ImageHash: {:?}", hash),
+    ///     Err(e) => println!("Error creating ImageHash: {:?}", e),
+    /// }
+    /// ```
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, InvalidBytesError> {
         if bytes.len() * 8 > B::max_bits() {
             return Err(InvalidBytesError::BytesWrongLength {
                 expected: B::max_bits() / 8,
@@ -462,31 +482,40 @@ impl<B: HashBytes> ImageHash<B> {
             });
         }
 
-        Ok(ImageHash {
+        Ok(Self {
             hash: B::from_iter(bytes.iter().copied()),
             __backcompat: (),
         })
     }
 
-    /// Calculate the Hamming distance between this and `other`.
+    /// Create an `ImageHash` instance from a base64-encoded string.
     ///
-    /// Equivalent to counting the 1-bits of the XOR of the two hashes.
+    /// # Errors
     ///
-    /// Essential to determining the perceived difference between `self` and `other`.
+    /// Returns a `InvalidBytesError::Base64DecodeError` if decoding from base64 fails.
     ///
-    /// ### Note
-    /// This return value is meaningless if these two hashes are from different hash sizes or
-    /// algorithms.
+    /// # Examples
+    ///
+    /// ```
+    /// use img_hash::ImageHash;
+    /// use img_hash::InvalidBytesError;
+    ///
+    /// let encoded_hash = "aGVsbG8gd29ybGQ=";
+    /// match ImageHash::from_base64(encoded_hash) {
+    ///     Ok(hash) => println!("Successfully created ImageHash: {:?}", hash),
+    ///     Err(e) => println!("Error creating ImageHash from base64: {:?}", e),
+    /// }
+    /// ```
     pub fn dist(&self, other: &Self) -> u32 {
         BitSet::hamming(&self.hash, &other.hash)
     }
 
     /// Create an `ImageHash` instance from the given Base64-encoded string.
     ///
-    /// ## Errors:
+    /// # Errors:
     /// Returns `InvalidBytesError::Base64(DecodeError::InvalidLength)` if the string wasn't valid base64.
     /// Otherwise returns the same errors as `from_bytes`.
-    pub fn from_base64(encoded_hash: &str) -> Result<ImageHash<B>, InvalidBytesError> {
+    pub fn from_base64(encoded_hash: &str) -> Result<Self, InvalidBytesError> {
         let bytes = base64::engine::general_purpose::STANDARD_NO_PAD
             .decode(encoded_hash)
             .map_err(InvalidBytesError::Base64)?;
@@ -508,7 +537,7 @@ impl<B: HashBytes> ImageHash<B> {
     }
 }
 
-/// Provide Serde a typedef for `image::FilterType`: https://serde.rs/remote-derive.html
+/// Provide Serde a typedef for `image::FilterType`: <https://serde.rs/remote-derive.html>
 /// This is automatically checked, if Serde complains then double-check with the original definition
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "FilterType")]
@@ -520,10 +549,10 @@ enum SerdeFilterType {
     Lanczos3,
 }
 
-fn debug_filter_type(ft: &FilterType) -> &'static str {
-    use FilterType::*;
+const fn debug_filter_type(ft: FilterType) -> &'static str {
+    use FilterType::{CatmullRom, Gaussian, Lanczos3, Nearest, Triangle};
 
-    match *ft {
+    match ft {
         Triangle => "Triangle",
         Nearest => "Nearest",
         CatmullRom => "CatmullRom",
@@ -536,7 +565,7 @@ fn debug_filter_type(ft: &FilterType) -> &'static str {
 mod test {
     use image::{ImageBuffer, Rgba};
 
-    use rand::{rngs::SmallRng, RngCore, SeedableRng};
+    use rand::{rngs::SmallRng, SeedableRng};
 
     use super::{HashAlg, HasherConfig, ImageHash};
 
@@ -544,12 +573,9 @@ mod test {
 
     fn gen_test_img(width: u32, height: u32) -> RgbaBuf {
         let len = (width * height * 4) as usize;
-        let mut buf = Vec::with_capacity(len);
-        unsafe {
-            buf.set_len(len);
-        } // We immediately fill the buffer.
-        let mut rng = SmallRng::seed_from_u64(0xc0ffee);
-        rng.fill_bytes(&mut buf);
+        let mut rng = SmallRng::seed_from_u64(0x00c0_ffee);
+
+        let buf: Vec<u8> = (0..len).map(|_| rand::Rng::gen(&mut rng)).collect();
 
         ImageBuffer::from_raw(width, height, buf).unwrap()
     }
@@ -630,7 +656,7 @@ mod test {
         let hash1 = hasher.hash_image(&test_img);
 
         let base64_string = hash1.to_base64();
-        let decoded_result = ImageHash::from_base64(&*base64_string);
+        let decoded_result = ImageHash::from_base64(&base64_string);
 
         assert_eq!(decoded_result.unwrap(), hash1);
     }

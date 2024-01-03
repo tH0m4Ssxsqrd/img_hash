@@ -1,6 +1,7 @@
 //! Hash an image and print the Base64 value
 
 use std::env;
+use std::fmt::Write;
 
 use image_hasher::HasherConfig;
 
@@ -15,11 +16,10 @@ fn main() -> Result<(), String> {
         .to_hasher()
         .hash_image(&image);
 
-    let hash_str = hash
-        .as_bytes()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect::<String>();
+    let hash_str = hash.as_bytes().iter().fold(String::new(), |mut acc, &b| {
+        write!(acc, "{b:02x}").expect("Failed to write to String");
+        acc
+    });
 
     println!("{}: {}", &args[1], hash_str);
 

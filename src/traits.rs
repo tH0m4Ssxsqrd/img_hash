@@ -101,7 +101,7 @@ where
             .take(8)
             .enumerate()
             .fold(None, |accum, (n, val)| {
-                accum.or(Some(0)).map(|accum| accum | ((val as u8) << n))
+                accum.or(Some(0)).map(|accum| accum | (u8::from(val) << n))
             })
     }
 
@@ -121,7 +121,7 @@ where
     }
 }
 
-pub(crate) trait BitSet: HashBytes {
+pub trait BitSet: HashBytes {
     fn from_bools<I: Iterator<Item = bool>>(iter: I) -> Self
     where
         Self: Sized,
@@ -270,7 +270,7 @@ impl Image for GrayImage {
 fn test_bools_to_bytes() {
     let bools = (0..16).map(|x| x & 1 == 0);
     let bytes = Vec::from_bools(bools.clone());
-    assert_eq!(*bytes, [0b01010101; 2]);
+    assert_eq!(*bytes, [0b0101_0101; 2]);
 
     let bools_to_bytes = BoolsToBytes { iter: bools };
     assert_eq!(bools_to_bytes.size_hint(), (2, Some(2)));

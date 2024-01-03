@@ -1,16 +1,16 @@
 #![allow(clippy::needless_lifetimes)]
-use crate::CowImage::*;
-use crate::HashVals::*;
+use crate::CowImage::{Borrowed, Owned};
+use crate::HashVals::{Bytes, Floats};
 use crate::{BitSet, HashCtxt, Image};
 
-use self::HashAlg::*;
+use self::HashAlg::{Blockhash, DoubleGradient, Gradient, Mean, VertGradient};
 
 mod blockhash;
 
 /// Hash algorithms implemented by this crate.
 ///
 /// Implemented primarily based on the high-level descriptions on the blog Hacker Factor
-/// written by Dr. Neal Krawetz: http://www.hackerfactor.com/
+/// written by Dr. Neal Krawetz: <http://www.hackerfactor.com/>
 ///
 /// Note that `hash_width` and `hash_height` in these docs refer to the parameters of
 /// [`HasherConfig::hash_size()`](struct.HasherConfig.html#method.hash_size).
@@ -75,16 +75,16 @@ pub enum HashAlg {
     Blockhash,
 }
 
-fn next_multiple_of_2(x: u32) -> u32 {
+const fn next_multiple_of_2(x: u32) -> u32 {
     (x + 1) & !1
 }
 
-fn next_multiple_of_4(x: u32) -> u32 {
+const fn next_multiple_of_4(x: u32) -> u32 {
     (x + 3) & !3
 }
 
 impl HashAlg {
-    pub(crate) fn hash_image<I, B>(&self, ctxt: &HashCtxt, image: &I) -> B
+    pub(crate) fn hash_image<I, B>(self, ctxt: &HashCtxt, image: &I) -> B
     where
         I: Image,
         B: BitSet,
@@ -93,7 +93,7 @@ impl HashAlg {
 
         let HashCtxt { width, height, .. } = *ctxt;
 
-        if *self == Blockhash {
+        if self == Blockhash {
             return match post_gauss {
                 Borrowed(img) => blockhash::blockhash(img, width, height),
                 Owned(img) => blockhash::blockhash(&img, width, height),
@@ -107,7 +107,7 @@ impl HashAlg {
 
         let rowstride = resize_width as usize;
 
-        match (*self, hash_vals) {
+        match (self, hash_vals) {
             (Mean, Floats(ref floats)) => B::from_bools(mean_hash_f32(floats)),
             (Mean, Bytes(ref bytes)) => B::from_bools(mean_hash_u8(bytes)),
             (Gradient, Floats(ref floats)) => B::from_bools(gradient_hash(floats, rowstride)),
@@ -126,16 +126,16 @@ impl HashAlg {
         }
     }
 
-    pub(crate) fn round_hash_size(&self, width: u32, height: u32) -> (u32, u32) {
-        match *self {
+    pub(crate) const fn round_hash_size(self, width: u32, height: u32) -> (u32, u32) {
+        match self {
             DoubleGradient => (next_multiple_of_2(width), next_multiple_of_2(height)),
             Blockhash => (next_multiple_of_4(width), next_multiple_of_4(height)),
             _ => (width, height),
         }
     }
 
-    pub(crate) fn resize_dimensions(&self, width: u32, height: u32) -> (u32, u32) {
-        match *self {
+    pub(crate) fn resize_dimensions(self, width: u32, height: u32) -> (u32, u32) {
+        match self {
             Mean => (width, height),
             Blockhash => panic!("Blockhash algorithm does not resize"),
             Gradient => (width + 1, height),
@@ -146,7 +146,11 @@ impl HashAlg {
 }
 
 fn mean_hash_u8<'a>(luma: &'a [u8]) -> impl Iterator<Item = bool> + 'a {
-    let mean = (luma.iter().map(|&l| l as u32).sum::<u32>() / luma.len() as u32) as u8;
+    let mean = u8::try_from(
+        luma.iter().map(|&l| u32::from(l)).sum::<u32>()
+            / u32::try_from(luma.len()).expect("Could not calculate luma lenght"),
+    )
+    .expect("Could not calculate mean");
     luma.iter().map(move |&x| x >= mean)
 }
 
